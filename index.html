@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Trailscape — Trilhas 3D</title>
+
+  <link
+    href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css"
+    rel="stylesheet"
+  >
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tmcw/togeojson@4.4.1/dist/togeojson.umd.js"></script>
+
+  <style>
+    :root {
+      --accent: #ff7038;
+      --text: #f3f5f8;
+      --muted: #aab5c5;
+      --border: rgba(255,255,255,.13);
+      --surface: rgba(15,22,32,.92);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background: #101923;
+    }
+
+    #map { position: fixed; inset: 0; }
+
+    .panel {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 2;
+      width: 350px;
+      max-height: calc(100dvh - 70px);
+      overflow: auto;
+      padding: 23px;
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background: var(--surface);
+      backdrop-filter: blur(20px);
+      box-shadow: 0 18px 60px #0005;
+    }
+
+    header { margin-bottom: 21px; }
+    h1 { margin: 0; font-size: 25px; letter-spacing: -.9px; }
+    h1 span { color: var(--accent); }
+    header p { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+
+    .dropzone {
+      display: block;
+      padding: 22px 12px;
+      border: 1px dashed #76869b;
+      border-radius: 14px;
+      text-align: center;
+      cursor: pointer;
+      background: #ffffff04;
+      transition: background .2s, border-color .2s;
+    }
+
+    .dropzone:hover, .dropzone.dragging {
+      border-color: var(--accent);
+      background: #ff703815;
+    }
+
+    .dropzone strong { display: block; font-size: 14px; }
+    .dropzone small { display: block; margin-top: 8px; color: var(--muted); }
+    .upload-icon { display: block; margin-bottom: 9px; font-size: 26px; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .dropzone:focus-within, button:focus-visible,
+    select:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 4px;
+    }
+
+    .filename {
+      min-height: 17px;
+      margin: 9px 0 20px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .field { margin-top: 20px; }
+    .field label, .field-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    select, button {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #202b3a;
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+    }
+
+    select { cursor: pointer; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    output { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .range-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 22px 0 12px;
+    }
+
+    .stat {
+      min-width: 0;
+      padding: 13px 5px;
+      text-align: center;
+      border-radius: 12px;
+      background: #ffffff06;
+      border: 1px solid var(--border);
+    }
+
+    .stat dt { font-size: 10px; color: var(--muted); }
+    .stat dd { margin: 8px 0 0; font-size: 18px; font-weight: 700; }
+    .stat small { font-size: 10px; color: var(--muted); font-weight: 400; }
+
+    button { cursor: pointer; font-weight: 600; }
+    button:hover:not(:disabled) { background: #303f52; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    .note { color: var(--muted); font-size: 11px; line-height: 1.6; }
+    #status {
+      margin: 15px 0 0;
+      padding: 11px;
+      border-radius: 9px;
+      color: #becce0;
+      background: #ffffff06;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    #status[data-kind="error"] { color: #ffc4bd; background: #ff5a4518; }
+    #status[data-kind="success"] { color: #a4e4ca; background: #3ecf9810; }
+
+    @media (max-width: 600px) {
+      .panel {
+        top: auto;
+        bottom: 30px;
+        left: 10px;
+        width: calc(100% - 20px);
+        max-height: 46dvh;
+        padding: 17px;
+        border-radius: 18px;
+      }
+      header { margin-bottom: 13px; }
+      h1 { font-size: 21px; }
+      .dropzone { padding: 12px; }
+      .upload-icon { display: none; }
+      .field { margin-top: 13px; }
+      .stats { margin-top: 15px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map" aria-label="Mapa tridimensional da trilha"></div>
+
+  <aside class="panel" aria-label="Controles da trilha">
+    <header>
+      <h1>Trailscape<span> / 3D</span></h1>
+      <p>Explore o relevo. Encontre seu próximo caminho.</p>
+    </header>
+
+    <label class="dropzone" id="dropzone">
+      <span class="upload-icon" aria-hidden="true">↥</span>
+      <strong>Escolha ou arraste seu GPX</strong>
+      <small>Processamento local · até 20 MB</small>
+      <input class="sr-only" id="file" type="file"
+             accept=".gpx,application/gpx+xml">
+    </label>
+
+    <p class="filename" id="filename">Nenhuma trilha carregada.</p>
+
+    <div class="field">
+      <label for="style">Visualização do mapa</label>
+      <select id="style">
+        <option value="satellite">Satélite</option>
+        <option value="topographic">Topográfico</option>
+        <option value="dark">Escuro</option>
+        <option value="terrain">Terreno</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="exaggeration">
+        Exagero vertical
+        <output id="exaggeration-value" for="exaggeration">1,5×</output>
+      </label>
+      <input id="exaggeration" type="range"
+             min="1" max="4" step="0.1" value="1.5">
+      <div class="range-labels"><span>1× · real</span><span>4×</span></div>
+    </div>
+
+    <dl class="stats">
+      <div class="stat">
+        <dt>Distância</dt>
+        <dd><span id="distance">—</span> <small>km</small></dd>
+      </div>
+      <div class="stat">
+        <dt>Elevação máx.</dt>
+        <dd><span id="maximum">—</span> <small>m</small></dd>
+      </div>
+      <div class="stat">
+        <dt>Elevação mín.</dt>
+        <dd><span id="minimum">—</span> <small>m</small></dd>
+      </div>
+    </dl>
+
+    <button id="fit" type="button" disabled>Enquadrar trilha</button>
+    <p class="note">
+      Distância horizontal, sem conectar segmentos separados.
+      Elevações provenientes do GPX; o exagero modifica somente o mapa.
+      A linha acompanha a superfície do relevo.
+    </p>
+
+    <p id="status" role="status" aria-live="polite">Inicializando mapa…</p>
+  </aside>
+
+  <script>
+    // Coloque aqui seu próprio token PÚBLICO do Mapbox (pk...).
+    const accessToken = "pk.eyJ1IjoicnppYm9yZGkiLCJhIjoiY212Z21zMXU0MDFwbzJ4cTJoMDNiOHo2NCJ9.KM9QSztptrV9V-K8JufkuQ";
+
+    (() => {
+      "use strict";
+
+      const $ = id => document.getElementById(id);
+      const ui = {
+        file: $("file"),
+        drop: $("dropzone"),
+        filename: $("filename"),
+        style: $("style"),
+        exaggeration: $("exaggeration"),
+        output: $("exaggeration-value"),
+        distance: $("distance"),
+        maximum: $("maximum"),
+        minimum: $("minimum"),
+        fit: $("fit"),
+        status: $("status")
+      };
+
+      const IDS = {
+        dem: "trail-dem",
+        source: "trail-source",
+        outline: "trail-outline",
+        line: "trail-line",
+        shade: "trail-hillshade"
+      };
+
+      // Terreno usa Outdoors com vias e rótulos ocultos e hillshade adicional.
+      const STYLES = {
+        satellite: "mapbox://styles/mapbox/satellite-v9",
+        topographic: "mapbox://styles/mapbox/outdoors-v12",
+        dark: "mapbox://styles/mapbox/dark-v11",
+        terrain: "mapbox://styles/mapbox/outdoors-v12"
+      };
+
+      const MAX_BYTES = 20 * 1024 * 1024;
+      const MAX_POINTS = 250000;
+      const number = new Intl.NumberFormat("pt-BR", {
+        maximumFractionDigits: 0
+      });
+      const distanceNumber = new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+
+      let map;
+      let route = null;
+      let routeRevision = 0;
+      let renderedRevision = -1;
+      let terrainReady = false;
+      let vertical = 1.5;
+      let appliedVertical = null;
+      let selectedStyle = "satellite";
+      let pendingFit = false;
+      let waitingForStyle = false;
+      let readingRevision = 0;
+
+      function status(message, kind = "info") {
+        ui.status.textContent = message;
+        ui.status.dataset.kind = kind;
+      }
+
+      function initialize() {
+        if (!window.mapboxgl || !window.toGeoJSON) {
+          status("Não foi possível carregar as bibliotecas. Verifique sua conexão e recarregue.", "error");
+          return;
+        }
+
+        if (!accessToken || accessToken === "SEU_TOKEN_MAPBOX_AQUI") {
+          status("Insira seu token público do Mapbox na variável accessToken do HTML.", "error");
+          return;
+        }
+
+        if (!mapboxgl.supported()) {
+          status("WebGL não está disponível. Ative a aceleração gráfica ou use outro navegador.", "error");
+          return;
+        }
+
+        try {
+          mapboxgl.accessToken = accessToken;
+
+          map = new mapboxgl.Map({
+            container: "map",
+            style: STYLES.satellite,
+            center: [-46.64, -22.85],
+            zoom: 9,
+            pitch: 65,
+            bearing: -15,
+            antialias: true,
+            maxPitch: 85,
+            attributionControl: true
+          });
+
+          map.addControl(new mapboxgl.NavigationControl({
+            visualizePitch: true
+          }), "top-right");
+
+          map.addControl(new mapboxgl.ScaleControl({
+            unit: "metric"
+          }), "bottom-right");
+
+          map.on("style.load", () => {
+            terrainReady = false;
+            appliedVertical = null;
+            renderedRevision = -1;
+            requestSync();
+          });
+
+          map.on("error", event => {
+            console.error("Mapbox:", event.error);
+            const code = event.error?.status;
+            status(
+              code === 401 || code === 403
+                ? "Mapbox recusou o acesso. Verifique o token e suas restrições de URL."
+                : "Falha ao carregar um recurso do mapa. Verifique a conexão, o token e o console.",
+              "error"
+            );
+          });
+
+          bindEvents();
+        } catch (error) {
+          console.error(error);
+          status("Não foi possível iniciar o mapa: " + error.message, "error");
+        }
+      }
+
+      /*
+       * Todas as alterações de fontes e camadas passam por esta proteção.
+       *
+       * style.load atende o carregamento inicial e as trocas de estilo.
+       * render é uma segunda oportunidade: isStyleLoaded() também pode
+       * ficar false durante atualizações de fontes, sem outro style.load.
+       *
+       * Os callbacks leem o estado atual, evitando desenhar um GPX antigo
+       * quando uploads ou trocas de estilo acontecem rapidamente.
+       */
+      function requestSync() {
+        if (!map) return;
+
+        if (!map.isStyleLoaded()) {
+          if (!waitingForStyle) {
+            waitingForStyle = true;
+            map.once("style.load", retrySync);
+            map.on("render", retrySync);
+          }
+          return;
+        }
+
+        clearWaiters();
+
+        try {
+          syncLoadedStyle();
+        } catch (error) {
+          console.error(error);
+          status("Erro ao atualizar o mapa: " + error.message, "error");
+        }
+      }
+
+      function retrySync() {
+        if (map.isStyleLoaded()) requestSync();
+      }
+
+      function clearWaiters() {
+        waitingForStyle = false;
+        map.off("style.load", retrySync);
+        map.off("render", retrySync);
+      }
+
+      function syncLoadedStyle() {
+        // Guarda obrigatória antes da transação síncrona de desenho.
+        if (!map.isStyleLoaded()) {
+          requestSync();
+          return;
+        }
+
+        // Não há await neste bloco: uma troca de estilo não o interrompe.
+        if (!terrainReady) {
+          configureTerrainAndAtmosphere();
+          terrainReady = true;
+        }
+
+        if (appliedVertical !== vertical) {
+          map.setTerrain({
+            source: IDS.dem,
+            exaggeration: vertical
+          });
+          appliedVertical = vertical;
+        }
+
+        if (route && renderedRevision !== routeRevision) {
+          // Sempre remover camadas ANTES de remover a fonte antiga.
+          removeRoute();
+
+          map.addSource(IDS.source, {
+            type: "geojson",
+            data: route.geojson
+          });
+
+          map.addLayer({
+            id: IDS.outline,
+            type: "line",
+            source: IDS.source,
+            layout: {
+              "line-join": "round",
+              "line-cap": "round"
+            },
+            paint: {
+              "line-color": "#20120d",
+              "line-width": 8,
+              "line-opacity": 0.85
+            }
+          });
+
+          map.addLayer({
+            id: IDS.line,
+            type: "line",
+            source: IDS.source,
+            layout: {
+              "line-join": "round",
+              "line-cap": "round"
+            },
+            paint: {
+              "line-color": "#ff7038",
+              "line-width": 4.5,
+              "line-opacity": 1
+            }
+          });
+
+          renderedRevision = routeRevision;
+          status(route.summary, "success");
+        } else if (!route) {
+          status("Mapa pronto. Carregue um arquivo GPX.");
+        }
+
+        if (pendingFit && route) {
+          pendingFit = false;
+          fitRoute();
+        }
+      }
+
+      function configureTerrainAndAtmosphere() {
+        if (!map.getSource(IDS.dem)) {
+          map.addSource(IDS.dem, {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14
+          });
+        }
+
+        const dark = selectedStyle === "dark";
+
+        // Atmosfera muda conforme o estilo e a escala de visualização.
+        map.setFog({
+          range: [0.5, 10],
+          color: [
+            "interpolate", ["linear"], ["zoom"],
+            5, dark ? "#323b58" : "#b5d3e6",
+            15, dark ? "#202738" : "#e1edf0"
+          ],
+          "high-color": dark ? "#10172e" : "#447fc1",
+          "space-color": dark ? "#050812" : "#10223f",
+          "horizon-blend": 0.18,
+          "star-intensity": dark ? 0.65 : 0.08
+        });
+
+        if (selectedStyle === "terrain") {
+          for (const layer of map.getStyle().layers || []) {
+            if (
+              layer.type === "symbol" ||
+              /road|bridge|tunnel|motorway|rail|building/i.test(layer.id)
+            ) {
+              map.setLayoutProperty(layer.id, "visibility", "none");
+            }
+          }
+
+          if (!map.getLayer(IDS.shade)) {
+            map.addLayer({
+              id: IDS.shade,
+              type: "hillshade",
+              source: IDS.dem,
+              paint: {
+                "hillshade-exaggeration": 0.35,
+                "hillshade-shadow-color": "#314b40",
+                "hillshade-highlight-color": "#f4edd5"
+              }
+            });
+          }
+        }
+      }
+
+      function removeRoute() {
+        for (const id of [IDS.line, IDS.outline]) {
+          if (map.getLayer(id)) map.removeLayer(id);
+        }
+        if (map.getSource(IDS.source)) {
+          map.removeSource(IDS.source);
+        }
+      }
+
+      function fitRoute() {
+        if (!route || !map) return;
+
+        const panel = document.querySelector(".panel").getBoundingClientRect();
+        const mobile = matchMedia("(max-width: 600px)").matches;
+        const padding = mobile
+          ? {
+              top: 65,
+              right: 35,
+              bottom: Math.ceil(panel.height + 45),
+              left: 35
+            }
+          : {
+              top: 70,
+              right: 70,
+              bottom: 70,
+              left: Math.ceil(panel.right + 45)
+            };
+
+        map.fitBounds(route.bounds, {
+          padding,
+          pitch: 65,
+          bearing: -15,
+          maxZoom: 16,
+          duration: matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? 0 : 1800
+        });
+      }
+
+      function haversine(a, b) {
+        const rad = Math.PI / 180;
+        const lat1 = a[1] * rad;
+        const lat2 = b[1] * rad;
+        const dLat = lat2 - lat1;
+        const dLon = (b[0] - a[0]) * rad;
+        const h =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
+        return 6371008.8 * 2 * Math.asin(Math.sqrt(Math.min(1, h)));
+      }
+
+      function parseGPX(text) {
+        if (/<!DOCTYPE|<!ENTITY/i.test(text)) {
+          throw new Error("GPX com DOCTYPE ou entidades XML não é aceito.");
+        }
+
+        const xml = new DOMParser().parseFromString(text, "application/xml");
+
+        if (
+          xml.getElementsByTagName("parsererror").length ||
+          xml.getElementsByTagNameNS("*", "parsererror").length
+        ) {
+          throw new Error("O XML está malformado.");
+        }
+
+        if (xml.documentElement?.localName !== "gpx") {
+          throw new Error("O arquivo não contém um documento GPX válido.");
+        }
+
+        const converted = toGeoJSON.gpx(xml);
+        const segments = [];
+        let pointCount = 0;
+
+        for (const feature of converted.features || []) {
+          const geometry = feature.geometry;
+          if (!geometry) continue;
+
+          const lines = geometry.type === "LineString"
+            ? [geometry.coordinates]
+            : geometry.type === "MultiLineString"
+              ? geometry.coordinates
+              : [];
+
+          for (const line of lines) {
+            if (!Array.isArray(line) || line.length < 2) continue;
+
+            const clean = [];
+            for (const coordinate of line) {
+              if (++pointCount > MAX_POINTS) {
+                throw new Error("Limite de 250 mil pontos excedido.");
+              }
+
+              if (
+                !Array.isArray(coordinate) ||
+                !Number.isFinite(coordinate[0]) ||
+                !Number.isFinite(coordinate[1]) ||
+                Math.abs(coordinate[0]) > 180 ||
+                Math.abs(coordinate[1]) > 90
+              ) {
+                throw new Error("O GPX contém coordenadas inválidas.");
+              }
+
+              // Mercator, usado pelo relevo 3D, não cobre os polos.
+              if (Math.abs(coordinate[1]) > 85.051129) {
+                throw new Error("A trilha ultrapassa o limite de latitude do mapa Mercator.");
+              }
+
+              clean.push(
+                Number.isFinite(coordinate[2])
+                  ? [coordinate[0], coordinate[1], coordinate[2]]
+                  : [coordinate[0], coordinate[1]]
+              );
+            }
+            segments.push(clean);
+          }
+        }
+
+        if (!segments.length) {
+          throw new Error("Nenhuma trilha ou rota com dois ou mais pontos foi encontrada.");
+        }
+
+        let meters = 0;
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        let elevationCount = 0;
+
+        /*
+         * Longitude contínua evita enquadrar quase o planeta inteiro
+         * quando uma trilha local cruza o antimeridiano.
+         */
+        const bounds = new mapboxgl.LngLatBounds();
+        const anchor = segments[0][0][0];
+
+        for (const segment of segments) {
+          let previousLongitude = anchor;
+
+          for (let i = 0; i < segment.length; i++) {
+            const point = segment[i];
+
+            if (i > 0) meters += haversine(segment[i - 1], point);
+
+            if (Number.isFinite(point[2])) {
+              minimum = Math.min(minimum, point[2]);
+              maximum = Math.max(maximum, point[2]);
+              elevationCount++;
+            }
+
+            let longitude = point[0];
+            while (longitude - previousLongitude > 180) longitude -= 360;
+            while (longitude - previousLongitude < -180) longitude += 360;
+            previousLongitude = longitude;
+
+            // Também normaliza a linha desenhada para cruzar corretamente.
+            point[0] = longitude;
+            bounds.extend([longitude, point[1]]);
+          }
+        }
+
+        return {
+          geojson: {
+            type: "FeatureCollection",
+            features: [{
+              type: "Feature",
+              properties: {},
+              geometry: segments.length === 1
+                ? { type: "LineString", coordinates: segments[0] }
+                : { type: "MultiLineString", coordinates: segments }
+            }]
+          },
+          bounds,
+          kilometers: meters / 1000,
+          minimum: elevationCount ? minimum : null,
+          maximum: elevationCount ? maximum : null,
+          pointCount,
+          elevationCount,
+          segmentCount: segments.length
+        };
+      }
+
+      async function loadFile(file) {
+        const revision = ++readingRevision;
+        if (!file) return;
+
+        try {
+          if (!/\.gpx$/i.test(file.name)) {
+            throw new Error("Selecione um arquivo com extensão .gpx.");
+          }
+          if (!file.size) throw new Error("O arquivo está vazio.");
+          if (file.size > MAX_BYTES) {
+            throw new Error("O arquivo excede o limite de 20 MB.");
+          }
+
+          status("Lendo e validando o GPX…");
+
+          const text = await file.text();
+          if (revision !== readingRevision) return;
+
+          const parsed = parseGPX(text);
+          if (revision !== readingRevision) return;
+
+          const elevationMessage = parsed.elevationCount === 0
+            ? " Sem elevações no GPX."
+            : parsed.elevationCount < parsed.pointCount
+              ? " Elevações parciais: extremos calculados apenas com valores disponíveis."
+              : "";
+
+          parsed.summary =
+            `${number.format(parsed.pointCount)} pontos · ` +
+            `${parsed.segmentCount} segmento(s).` +
+            elevationMessage;
+
+          // Só substitui a trilha anterior após a validação completa.
+          route = parsed;
+          routeRevision++;
+          pendingFit = true;
+
+          ui.filename.textContent = file.name;
+          ui.distance.textContent = distanceNumber.format(route.kilometers);
+          ui.maximum.textContent = route.maximum === null
+            ? "—" : number.format(route.maximum);
+          ui.minimum.textContent = route.minimum === null
+            ? "—" : number.format(route.minimum);
+          ui.fit.disabled = false;
+
+          status("GPX validado. Preparando visualização…");
+          requestSync();
+        } catch (error) {
+          if (revision !== readingRevision) return;
+          console.error(error);
+          status(error.message, "error");
+        }
+      }
+
+      function bindEvents() {
+        ui.file.addEventListener("change", event => {
+          const file = event.target.files[0];
+          event.target.value = "";
+          loadFile(file);
+        });
+
+        // Evita que o navegador abra o GPX arrastado no lugar da aplicação.
+        window.addEventListener("dragover", event => event.preventDefault());
+
+        window.addEventListener("drop", event => {
+          event.preventDefault();
+          ui.drop.classList.remove("dragging");
+          const files = event.dataTransfer?.files;
+          if (!files?.length) return;
+
+          if (files.length !== 1) {
+            status("Arraste um único arquivo GPX por vez.", "error");
+            return;
+          }
+          loadFile(files[0]);
+        });
+
+        ui.drop.addEventListener("dragenter", () => {
+          ui.drop.classList.add("dragging");
+        });
+
+        ui.drop.addEventListener("dragleave", event => {
+          if (!ui.drop.contains(event.relatedTarget)) {
+            ui.drop.classList.remove("dragging");
+          }
+        });
+
+        window.addEventListener("dragend", () => {
+          ui.drop.classList.remove("dragging");
+        });
+
+        ui.style.addEventListener("change", () => {
+          const previous = selectedStyle;
+          selectedStyle = ui.style.value;
+
+          try {
+            map.stop();
+            terrainReady = false;
+            appliedVertical = null;
+            renderedRevision = -1;
+
+            status("Carregando novo estilo…");
+
+            // Recarregamento completo: style.load restaurará DEM e GPX.
+            map.setStyle(STYLES[selectedStyle], { diff: false });
+            requestSync();
+          } catch (error) {
+            selectedStyle = previous;
+            ui.style.value = previous;
+            status("Não foi possível trocar o estilo: " + error.message, "error");
+          }
+        });
+
+        ui.exaggeration.addEventListener("input", () => {
+          vertical = Number(ui.exaggeration.value);
+          ui.output.value = vertical.toLocaleString("pt-BR", {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1
+          }) + "×";
+          requestSync();
+        });
+
+        ui.fit.addEventListener("click", () => {
+          pendingFit = true;
+          requestSync();
+        });
+      }
+
+      initialize();
+    })();
+  </script>
+</body>
+</html>
